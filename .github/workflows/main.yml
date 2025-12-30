@@ -3,7 +3,7 @@ name: 基金布林带信号每日生成
 on:
   # 每日定时触发，北京时间15:00（UTC时间7:00）
   schedule:
-    - cron: '* * * * *'
+    - cron: '30 1 * * *'
   # 支持手动触发
   workflow_dispatch:
 
