@@ -8,6 +8,23 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.application import MIMEApplication
 from email.mime.text import MIMEText
+import logging
+import os
+
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    # 输出到控制台
+    handlers=[
+        logging.StreamHandler(),
+        # 输出到文件
+        logging.FileHandler('fund_signal.log', encoding='utf-8')
+    ]
+)
+
+# 获取日志记录器
+logger = logging.getLogger(__name__)
 
 # 配置参数
 BB_WINDOW = 20
@@ -52,7 +69,7 @@ def get_historical_nav(fund_code):
         df.reset_index(drop=True, inplace=True)
         return df
     except Exception as e:
-        print(f"获取基金{fund_code}历史净值失败: {e}")
+        logger.error(f"获取基金{fund_code}历史净值失败: {e}")
         return None
 
 # 获取当日实时估值
@@ -76,10 +93,10 @@ def get_realtime_estimate(fund_code):
             data = json.loads(json_str)
             return data
         else:
-            print(f"基金{fund_code}实时估值数据格式异常: {text}")
+            logger.error(f"基金{fund_code}实时估值数据格式异常: {text}")
             return None
     except Exception as e:
-        print(f"获取基金{fund_code}实时估值失败: {e}")
+        logger.error(f"获取基金{fund_code}实时估值失败: {e}")
         return None
 
 # 计算布林带指标
@@ -121,11 +138,11 @@ def generate_signals(data, column='单位净值'):
 
 # 处理单只基金数据
 def process_fund(fund_code):
-    print(f"开始处理基金: {fund_code}")
+    logger.info(f"开始处理基金: {fund_code}")
     # 获取历史净值数据
     historical_data = get_historical_nav(fund_code)
     if historical_data is None or len(historical_data) < BB_WINDOW:
-        print(f"基金{fund_code}历史数据不足，跳过")
+        logger.warning(f"基金{fund_code}历史数据不足，跳过")
         return None
     
     # 获取今日日期
@@ -139,14 +156,14 @@ def process_fund(fund_code):
     # 检查是否需要更新今日估值
     if latest_date == today:
         # 使用原始BB_WINDOW条数据计算，生成历史数据信号
-        print(f"基金{fund_code}今日已有净值数据，生成历史数据信号")
+        logger.info(f"基金{fund_code}今日已有净值数据，生成历史数据信号")
         use_today_data = True
     else:
         # 调用实时估值接口
         realtime_data = get_realtime_estimate(fund_code)
         if realtime_data and 'gsz' in realtime_data:
             # 接口成功且gsz有效
-            print(f"基金{fund_code}获取实时估值成功，生成预估信号")
+            logger.info(f"基金{fund_code}获取实时估值成功，生成预估信号")
             # 创建今日估值数据
             today_data = pd.DataFrame({
                 '净值日期': [today],
@@ -158,7 +175,7 @@ def process_fund(fund_code):
             use_today_data = True
         else:
             # 接口失败或gsz无效，直接用原始数据计算，但今日不新增信号
-            print(f"基金{fund_code}获取实时估值失败，生成历史数据信号但今日不新增")
+            logger.warning(f"基金{fund_code}获取实时估值失败，生成历史数据信号但今日不新增")
             use_today_data = False
     
     # 计算布林带指标
@@ -215,21 +232,21 @@ def generate_excel(results):
             '信号内容': '今日无交易信号',
             '信号类型': '无信号'
         }])
-        print("没有生成任何交易信号，生成提示信息Excel")
+        logger.info("没有生成任何交易信号，生成提示信息Excel")
     else:
         # 有信号时，合并所有结果
         df = pd.DataFrame(results)
-        print(f"生成了{len(results)}个交易信号")
+        logger.info(f"生成了{len(results)}个交易信号")
     
     # 写入Excel
     df.to_excel(filename, index=False)
-    print(f"Excel文件生成成功: {filename}")
+    logger.info(f"Excel文件生成成功: {filename}")
     return filename
 
 # 发送邮件
 def send_email(excel_file):
     if not excel_file:
-        print("没有Excel文件，跳过邮件发送")
+        logger.info("没有Excel文件，跳过邮件发送")
         return False
     
     try:
@@ -250,8 +267,8 @@ def send_email(excel_file):
             msg.attach(attachment)
         
         # 发送邮件（使用SMTP_SSL连接，添加调试信息）
-        print(f"尝试发送邮件，SMTP服务器: {EMAIL_SMTP_SERVER}, 端口: {EMAIL_SMTP_PORT}")
-        print(f"发件人: {EMAIL_SENDER}, 收件人: {EMAIL_RECEIVER}")
+        logger.info(f"尝试发送邮件，SMTP服务器: {EMAIL_SMTP_SERVER}, 端口: {EMAIL_SMTP_PORT}")
+        logger.info(f"发件人: {EMAIL_SENDER}, 收件人: {EMAIL_RECEIVER}")
         
         # 使用try-except捕获更详细的错误
         try:
@@ -260,30 +277,30 @@ def send_email(excel_file):
                 server.starttls()
                 server.login(EMAIL_SENDER, EMAIL_PASSWORD)
                 server.send_message(msg)
-            print("邮件发送成功（使用SMTP+STARTTLS）")
+            logger.info("邮件发送成功（使用SMTP+STARTTLS）")
         except Exception as e:
-            print(f"SMTP+STARTTLS发送失败: {e}")
+            logger.error(f"SMTP+STARTTLS发送失败: {e}")
             # 如果失败，再尝试SMTP_SSL
             try:
                 with smtplib.SMTP_SSL(EMAIL_SMTP_SERVER, 465) as server:
                     server.login(EMAIL_SENDER, EMAIL_PASSWORD)
                     server.send_message(msg)
-                print("邮件发送成功（使用SMTP_SSL）")
+                logger.info("邮件发送成功（使用SMTP_SSL）")
             except Exception as e2:
-                print(f"SMTP_SSL发送失败: {e2}")
+                logger.error(f"SMTP_SSL发送失败: {e2}")
                 raise
         
-        print("邮件发送成功")
+        logger.info("邮件发送成功")
         return True
     except Exception as e:
-        print(f"邮件发送失败: {e}")
+        logger.error(f"邮件发送失败: {e}")
         return False
 
 # 主函数
 def main():
-    print(f"开始运行基金布林带量化信号系统...")
-    print(f"布林带窗口长度: {BB_WINDOW}")
-    print(f"处理基金列表: {FUND_CODES}")
+    logger.info("开始运行基金布林带量化信号系统...")
+    logger.info(f"布林带窗口长度: {BB_WINDOW}")
+    logger.info(f"处理基金数量: {len(FUND_CODES)}")
     
     all_results = []
     
@@ -299,7 +316,7 @@ def main():
     # 发送邮件
     send_email(excel_file)
     
-    print("基金布林带量化信号系统运行完成")
+    logger.info("基金布林带量化信号系统运行完成")
 
 if __name__ == "__main__":
     main()
