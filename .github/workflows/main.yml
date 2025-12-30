@@ -1,0 +1,40 @@
+name: 基金布林带信号每日生成
+
+on:
+  # 每日定时触发，北京时间15:00（UTC时间7:00）
+  schedule:
+    - cron: '* * * * *'
+  # 支持手动触发
+  workflow_dispatch:
+
+jobs:
+  generate_signals:
+    runs-on: ubuntu-latest
+    
+    steps:
+      # 检出代码
+      - name: 检出代码
+        uses: actions/checkout@v3
+      
+      # 设置Python环境
+      - name: 设置Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      # 安装依赖
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+      
+      # 配置已直接写入代码，无需创建环境变量文件
+      
+      # 运行主脚本
+      - name: 生成基金布林带信号
+        run: python main.py
+      
+      # 保存生成的Excel文件作为artifact
+      - name: 保存Excel文件
+        uses: actions/upload-artifact@v3
+        with:
+          name: 基金布林带信号
+          path: 基金布林带信号_*.xlsx
